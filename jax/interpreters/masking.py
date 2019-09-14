@@ -66,12 +66,6 @@ def padded_shape_as_value(expr):
   else:
     return expr
 
-def force(expr):
-  if all(is_constant(d) for d in expr):
-    return shape_as_value(expr)
-  else:
-    raise ShapeError
-
 
 def mask_fun(fun, logical_env, padded_env, in_vals, shape_exprs):
   with core.new_master(MaskTrace) as master:
