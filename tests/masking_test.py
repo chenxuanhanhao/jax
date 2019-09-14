@@ -222,6 +222,21 @@ class MaskingTest(jtu.JaxTestCase):
     expected = np.array([3, 5])
     self.assertAllClose(ans, expected, check_dtypes=False)
 
+  def test_rnn(self):
+    @partial(mask, in_shapes=['(_, _)', '(t, _)'], out_shape='_')
+    def rnn(W, xs):
+      def step(h, x):
+        return np.dot(W, h) + np.dot(W, x), ()
+      final, _ = lax.scan(step, np.zeros(3), xs)
+      return final
+
+    rng = onp.random.RandomState(0)
+    W = onp.eye(3)
+    xs = rng.randn(10, 3)
+    ans = rnn([W, xs], dict(t=4))
+    expected = xs[:4].sum(0)
+    self.assertAllClose(ans, expected, check_dtypes=False)
+
   def test_nesting(self):
     raise SkipTest("not yet implemented")
 

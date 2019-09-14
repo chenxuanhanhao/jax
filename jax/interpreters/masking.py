@@ -66,6 +66,12 @@ def padded_shape_as_value(expr):
   else:
     return expr
 
+def force(expr):
+  if all(is_constant(d) for d in expr):
+    return shape_as_value(expr)
+  else:
+    raise ShapeError
+
 
 def mask_fun(fun, logical_env, padded_env, in_vals, shape_exprs):
   with core.new_master(MaskTrace) as master:
@@ -98,6 +104,11 @@ def mask_subtrace(master, in_vals, shape_exprs):
 class ShapeExpr(tuple):  # type ShapeExpr = [Poly]
   def __str__(self):
     return 'ShapeExpr({})'.format(', '.join(map(str, self)))
+  def __getitem__(self, idx):
+    if type(idx) is int:
+      return super(ShapeExpr, self).__getitem__(idx)
+    else:
+      return ShapeExpr(super(ShapeExpr, self).__getitem__(idx))
 
 class Poly(Counter):  # type Poly = Map Mon Int -- monomials to coeffs
   def __mul__(p1, p2):
@@ -118,7 +129,7 @@ class Poly(Counter):  # type Poly = Map Mon Int -- monomials to coeffs
     return ' + '.join('{} {}'.format(v, k) if v != 1 else str(k)
                       for k, v in sorted(self.items())).strip()
 
-class Mon(Counter):  # type Mon = Map Id Int -- ids to degrees
+class Mon(Counter):  # type Mon = Map Obj Int -- ids to degrees
   def __hash__(self):
     return hash(tuple(self.items()))
 

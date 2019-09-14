@@ -82,8 +82,13 @@ def _canonicalize_shape(shape):
     A tuple of integers.
   """
   # TODO(mattjj): this next check is a temporary workaround for masking
-  if type(shape) is ShapeExpr or any(type(d) is masking.Poly for d in shape):
+  if (type(shape) is ShapeExpr
+      or type(shape) is tuple and any(type(d) is masking.Poly for d in shape)):
     return shape
+  if type(shape) is masking.Poly:
+    if masking.is_constant(shape):
+      val, = shape.values()
+      return val
   try:
     return tuple(map(operator.index, shape))
   except TypeError:
