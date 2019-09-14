@@ -440,7 +440,9 @@ def scan(f, init, xs):
     raise ValueError(msg.format([x.shape[0] for x in xs_flat]))
 
   carry_avals = tuple(_map(_abstractify, init_flat))
-  x_avals = tuple(ShapedArray(masking.force(x.shape[1:]), x.dtype) for x in xs_flat)
+  x_shapes = [masking.padded_shape_as_value(x.shape[1:]) for x in xs_flat]
+  x_dtypes = [x.dtype for x in xs_flat]
+  x_avals = tuple(_map(ShapedArray, x_shapes, x_dtypes))
   jaxpr, consts, out_tree = _initial_style_jaxpr(f, in_tree, carry_avals + x_avals)
   carry_avals_out, y_avals = split_list(jaxpr.out_avals, [num_carry])
   if tuple(carry_avals_out) != carry_avals:

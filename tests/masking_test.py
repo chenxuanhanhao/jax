@@ -25,7 +25,7 @@ from absl.testing import parameterized
 
 from jax import test_util as jtu
 from jax.interpreters.masking import ShapeError, shape_as_value, parse_spec
-from jax import mask, vmap, jit, shapecheck
+from jax import mask, vmap, jit, shapecheck, grad
 from jax import lax
 import jax.numpy as np
 
@@ -223,18 +223,84 @@ class MaskingTest(jtu.JaxTestCase):
     self.assertAllClose(ans, expected, check_dtypes=False)
 
   def test_rnn(self):
+    n = 3
+
     @partial(mask, in_shapes=['(_, _)', '(t, _)'], out_shape='_')
     def rnn(W, xs):
       def step(h, x):
-        return np.dot(W, h) + np.dot(W, x), ()
-      final, _ = lax.scan(step, np.zeros(3), xs)
-      return final
+        new_h = np.dot(W, h) + np.dot(W, x)
+        return new_h, ()
+      predicted, _ = lax.scan(step, np.zeros(n), xs)
+      return predicted
 
     rng = onp.random.RandomState(0)
-    W = onp.eye(3)
-    xs = rng.randn(10, 3)
+    W = onp.eye(n)
+    xs = rng.randn(10, n)
     ans = rnn([W, xs], dict(t=4))
     expected = xs[:4].sum(0)
+    self.assertAllClose(ans, expected, check_dtypes=False)
+
+  def test_rnn_grad(self):
+    n = 3
+
+    @partial(mask, in_shapes=['(_, _)', '(t, _)', '_'], out_shape='')
+    def rnn(W, xs, target):
+      def step(h, x):
+        new_h = np.tanh(np.dot(W, h) + np.dot(W, x))
+        return new_h, ()
+      predicted, _ = lax.scan(step, np.zeros(n), xs)
+      return np.sum((predicted - target)**2)
+
+    rng = onp.random.RandomState(0)
+    W = rng.randn(n, n)
+    xs = rng.randn(10, n)
+    y = rng.randn(n)
+
+    ans = grad(lambda W: rnn([W, xs, y], dict(t=4)))(W)
+
+    def rnn_reference(W, xs, target):
+      h = np.zeros(n)
+      for x in xs:
+        h = np.tanh(np.dot(W, h) + np.dot(W, x))
+      predicted = h
+      return np.sum((predicted - target)**2)
+
+    expected = grad(lambda W: rnn_reference(W, xs[:4], y))(W)
+
+    self.assertAllClose(ans, expected, check_dtypes=False)
+
+  def test_ragged_batched_rnn(self):
+    n = 3
+
+    @partial(mask, in_shapes=('(_, _)', '(t, _)', '_'), out_shape='')
+    def rnn(W, xs, target):
+      def step(h, x):
+        new_h = np.tanh(np.dot(W, h) + np.dot(W, x))
+        return new_h, ()
+      predicted, _ = lax.scan(step, np.zeros(n), xs)
+      return np.sum((predicted - target)**2)
+
+    rng = onp.random.RandomState(0)
+    W = rng.randn(n, n)
+    seqs = rng.randn(3, 10, n)
+    ts = np.array([2, 5, 4])
+    ys = rng.randn(3, n)
+
+    ans = grad(lambda W: vmap(rnn, ((None, 0, 0), 0))((W, seqs, ys), dict(t=ts)).sum())(W)
+
+    def rnn_reference(W, seqs, targets):
+      total_loss = 0
+      for xs, target in zip(seqs, targets):
+        h = np.zeros(n)
+        for x in xs:
+          h = np.tanh(np.dot(W, h) + np.dot(W, x))
+        predicted = h
+        total_loss = total_loss + np.sum((predicted - target)**2)
+      return total_loss
+
+    seqs_ = [xs[:t] for xs, t in zip(seqs, ts)]
+    expected = grad(lambda W: rnn_reference(W, seqs_, ys).sum())(W)
+
     self.assertAllClose(ans, expected, check_dtypes=False)
 
   def test_nesting(self):
@@ -249,7 +315,6 @@ class MaskingTest(jtu.JaxTestCase):
       return padded_sum([x], dict(n=2))
 
     ans = padded_sum2([np.array([3, 1, 4, 1])], dict(n=1))
-    import ipdb; ipdb.set_trace()
 
   def test_arange(self):
     raise SkipTest("not yet implemented")
